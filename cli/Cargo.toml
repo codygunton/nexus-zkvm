@@ -34,3 +34,4 @@ clap.workspace = true
 
 nexus-core = { path = "../core" }
 nexus-progress-bar = { path = "./progress-bar" }
+nexus-vm = { path = "../vm" }

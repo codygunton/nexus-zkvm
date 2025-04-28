@@ -1,0 +1,96 @@
+1,2c1
+< 
+< running 1 test
+---
+> Loading ELF file: vm/test/fib_10.elf
+13d11
+< Section .bss: 0x0000287c -> 0x0000287c
+15d12
+< Section .got: 0x000026ec -> 0x000026f4
+16a14,15
+> Section .bss: 0x0000287c -> 0x0000287c
+> Section .got: 0x000026ec -> 0x000026f4
+27d25
+< Section .bss: 0x0000287c -> 0x0000287c
+29d26
+< Section .got: 0x000026ec -> 0x000026f4
+30a28,29
+> Section .bss: 0x0000287c -> 0x0000287c
+> Section .got: 0x000026ec -> 0x000026f4
+41d39
+< Section .bss: 0x0000287c -> 0x0000287c
+42a41,42
+> Section .bss: 0x0000287c -> 0x0000287c
+> Executing ELF file...
+10208c10208,10246
+< test trace::tests::test_k1_trace_nexus_rt_binary ... ok
+---
+> Execution completed successfully
+> Exit code: 0
+> 
+> Debug logs:
+> 0: fib(
+> 1: 0
+> 2: ) = 
+> 3: 1
+> 4: 
+> 
+> 5: fib(
+> 6: 1
+> 7: ) = 
+> 8: 1
+> 9: 
+> 
+> 10: fib(
+> 11: 2
+> 12: ) = 
+> 13: 2
+> 14: 
+> 
+> 15: fib(
+> 16: 3
+> 17: ) = 
+> 18: 3
+> 19: 
+> 
+> 20: fib(
+> 21: 4
+> 22: ) = 
+> 23: 5
+> 24: 
+> 
+> 25: fib(
+> 26: 5
+> 27: ) = 
+> 28: 8
+> 29: 
+10210c10248,10252
+< test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 226 filtered out; finished in 0.08s
+---
+> 30: fib(
+> 31: 6
+> 32: ) = 
+> 33: 13
+> 34: 
+10211a10254,10258
+> 35: fib(
+> 36: 7
+> 37: ) = 
+> 38: 21
+> 39: 
+10213c10260,10264
+< running 0 tests
+---
+> 40: fib(
+> 41: 8
+> 42: ) = 
+> 43: 34
+> 44: 
+10215c10266,10270
+< test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+---
+> 45: fib(
+> 46: 9
+> 47: ) = 
+> 48: 55
+> 49: 
