@@ -91,12 +91,32 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
     let elf_copy = elf_file.clone();
     
     match k_trace(elf_file, &[], &[], &[], 1) {
-        Ok((view, _trace)) => {
+        Ok((view, trace)) => {
             println!("Execution completed successfully");
             
             // Write signature if requested
             if let Some(sig_path) = &args.signature_path {
                 println!("Writing signature to {}", sig_path.display());
+                
+                // Print signature region details for debugging
+                println!("DEBUG: Signature region addresses: 0x{:x} - 0x{:x}", begin_sig_addr, end_sig_addr);
+                
+                // Print memory content in the signature region
+                let ram_entries = view.get_initial_memory()
+                    .iter()
+                    .filter(|entry| begin_sig_addr <= entry.address && entry.address < end_sig_addr)
+                    .collect::<Vec<_>>();
+                
+                println!("DEBUG: Found {} memory entries in signature region", ram_entries.len());
+                
+                if !ram_entries.is_empty() {
+                    // Show first few entries for debugging
+                    println!("DEBUG: First signature entries:");
+                    for (i, entry) in ram_entries.iter().take(5).enumerate() {
+                        println!("  Entry {}: addr=0x{:x}, value=0x{:x}", i, entry.address, entry.value);
+                    }
+                }
+                
                 write_signature_file(sig_path, &view, begin_sig_addr, end_sig_addr, args.signature_granularity)?;
             }
             
@@ -202,10 +222,22 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
                 // Extract from the raw RAM image since we don't have a proper view
                 let mut file = File::create(sig_path)?;
                 
+                // Debug output for signature region
+                println!("DEBUG: Signature region addresses: 0x{:x} - 0x{:x}", begin_sig_addr, end_sig_addr);
+                
                 // Extract the signature region from the raw RAM image
                 let ram_entries: Vec<_> = elf_copy.ram_image.iter()
                     .filter(|(&addr, _)| begin_sig_addr <= addr && addr < end_sig_addr)
                     .collect();
+                
+                // Debug ram entries
+                println!("DEBUG: Found {} RAM entries in signature region", ram_entries.len());
+                if !ram_entries.is_empty() {
+                    println!("DEBUG: First few RAM entries:");
+                    for (i, (&addr, &value)) in ram_entries.iter().take(5).enumerate() {
+                        println!("  Entry {}: addr=0x{:x}, value=0x{:x}", i, addr, value);
+                    }
+                }
                 
                 if ram_entries.is_empty() {
                     println!("Warning: No memory entries found in signature region");
@@ -214,6 +246,7 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
                         writeln!(file, "{:08x}", i + 1)?;
                     }
                 } else {
+                    println!("Ram entries are not empty!");
                     // Group bytes by word according to granularity
                     let mut words_by_addr: BTreeMap<u32, u32> = BTreeMap::new();
                     
