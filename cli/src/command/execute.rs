@@ -5,7 +5,6 @@ use std::io::Write;
 use nexus_vm::{
     elf::ElfFile,
     trace::k_trace,
-    error::VMError,
     emulator::{InternalView, View},
 };
 use std::collections::BTreeMap;
@@ -29,17 +28,17 @@ pub struct ExecuteArgs {
 
 // Add extension trait to lookup symbols in ELF file
 trait ElfSymbolLookup {
-    fn lookup_symbol(&self, symbol_name: &str) -> Option<u32>;
+    // fn lookup_symbol(&self, symbol_name: &str) -> Option<u32>;
     fn get_symbol_addresses_from_path(&self, path: &Path, symbols: &[&str]) -> anyhow::Result<BTreeMap<String, u32>>;
 }
 
 // Implement symbol lookup for ELF file
 impl ElfSymbolLookup for ElfFile {
-    fn lookup_symbol(&self, symbol_name: &str) -> Option<u32> {
-        // Use the path of the currently loaded ELF file to lookup symbols
-        let mut symbol_map = self.get_symbol_addresses_from_path(Path::new(""), &[symbol_name]).ok()?;
-        symbol_map.remove(symbol_name)
-    }
+    // fn lookup_symbol(&self, symbol_name: &str) -> Option<u32> {
+    //     // Use the path of the currently loaded ELF file to lookup symbols
+    //     let mut symbol_map = self.get_symbol_addresses_from_path(Path::new(""), &[symbol_name]).ok()?;
+    //     symbol_map.remove(symbol_name)
+    // }
 
     fn get_symbol_addresses_from_path(&self, path: &Path, symbols: &[&str]) -> anyhow::Result<BTreeMap<String, u32>> {
         // Implementation based on Spike's symbol lookup mechanism
@@ -120,9 +119,6 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
     println!("Signature region length: {} bytes", sig_len);
     
     println!("Executing ELF file...");
-    
-    // Keep a copy of the original ELF file for fallback signature generation
-    let elf_copy = elf_file.clone();
     
     match k_trace(elf_file, &[], &[], &[], 1) {
         Ok((view, _trace)) => {
