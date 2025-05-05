@@ -9,6 +9,8 @@ use nexus_vm::{
     emulator::{InternalView, View},
 };
 use std::collections::BTreeMap;
+use std::path::Path;
+use elf::{endian::LittleEndian, ElfBytes};
 
 #[derive(Debug, Args)]
 pub struct ExecuteArgs {
@@ -28,39 +30,60 @@ pub struct ExecuteArgs {
 // Add extension trait to lookup symbols in ELF file
 trait ElfSymbolLookup {
     fn lookup_symbol(&self, symbol_name: &str) -> Option<u32>;
+    fn get_symbol_addresses_from_path(&self, path: &Path, symbols: &[&str]) -> anyhow::Result<BTreeMap<String, u32>>;
 }
 
 // Implement symbol lookup for ELF file
 impl ElfSymbolLookup for ElfFile {
     fn lookup_symbol(&self, symbol_name: &str) -> Option<u32> {
-        // For begin_signature and end_signature, we can use a binary search approach
-        // by examining the data section of the ELF file and looking for specific patterns
+        // Use the path of the currently loaded ELF file to lookup symbols
+        let mut symbol_map = self.get_symbol_addresses_from_path(Path::new(""), &[symbol_name]).ok()?;
+        symbol_map.remove(symbol_name)
+    }
+
+    fn get_symbol_addresses_from_path(&self, path: &Path, symbols: &[&str]) -> anyhow::Result<BTreeMap<String, u32>> {
+        // Implementation based on Spike's symbol lookup mechanism
+        // 1. Read the ELF file from path or use the original if path is empty
+        let bytes = if path.as_os_str().is_empty() {
+            // This is a limitation of our current approach - we can't access the original bytes
+            // that were used to create this ELF file. In a proper implementation, we would
+            // either store these bytes in the ElfFile struct or reload them from the original path.
+            return Err(anyhow::anyhow!("Cannot access original ELF bytes"));
+        } else {
+            // Read file from the provided path
+            let file = File::open(path)?;
+            std::io::Read::bytes(file)
+                .map(|b| b.expect("Failed to read byte"))
+                .collect::<Vec<u8>>()
+        };
+
+        // 2. Parse the ELF file to extract symbols
+        let elf = ElfBytes::<LittleEndian>::minimal_parse(&bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to parse ELF: {}", e))?;
         
-        // These symbols are typically placed in the data section
-        // For simplicity in this implementation, we'll use hardcoded values based
-        // on common RISC-V test conventions where they are placed at the end of the RAM
+        // Get the symbol table and string table
+        let symbol_table = elf.symbol_table()
+            .map_err(|e| anyhow::anyhow!("Failed to get symbol table: {}", e))?
+            .ok_or_else(|| anyhow::anyhow!("No symbol table in ELF file"))?;
         
-        // In a real implementation, you would parse the ELF symbol table properly
-        match symbol_name {
-            "begin_signature" => {
-                // Look for the signature region in the data section
-                // Start from a high address in the ram_image and work downward
-                if !self.ram_image.is_empty() {
-                    // Extract the highest address in RAM that contains data
-                    let max_addr = *self.ram_image.keys().max().unwrap_or(&0);
-                    // Signatures are usually near the end of RAM
-                    // Return an address aligned to 4 bytes
-                    Some(max_addr - 1024) // Arbitrary offset to place it near the end of RAM
-                } else {
-                    None
-                }
+        let (symbol_table, string_table) = symbol_table;
+        
+        // 3. Find the requested symbols
+        let mut result = BTreeMap::new();
+        for symbol in symbol_table {
+            let name = string_table.get(symbol.st_name as usize)
+                .map_err(|e| anyhow::anyhow!("Failed to get symbol name: {}", e))?;
+            
+            if symbols.contains(&name) {
+                let addr: u32 = symbol.st_value
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Symbol address out of range: {}", symbol.st_value))?;
+                
+                result.insert(name.to_string(), addr);
             }
-            "end_signature" => {
-                // If begin_signature is found, end_signature is typically a fixed size after it
-                self.lookup_symbol("begin_signature").map(|begin| begin + 512) // Fixed size (arbitrary)
-            }
-            _ => None,
         }
+
+        Ok(result)
     }
 }
 
@@ -72,11 +95,18 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
     // Check for signature symbols if signature output is requested
     let (begin_sig_addr, end_sig_addr) = if args.signature_path.is_some() {
         println!("Looking for signature symbols");
-        // Try to find the signature symbols
-        let begin_sig = elf_file.lookup_symbol("begin_signature")
+        
+        // Get symbol addresses directly from the ELF file
+        let symbols = ["begin_signature", "end_signature"];
+        let symbol_map = elf_file.get_symbol_addresses_from_path(&args.elf_path, &symbols)?;
+        
+        // Extract begin_signature and end_signature addresses
+        let begin_sig = symbol_map.get("begin_signature")
+            .copied()
             .ok_or_else(|| anyhow::anyhow!("Cannot find 'begin_signature' symbol"))?;
         
-        let end_sig = elf_file.lookup_symbol("end_signature")
+        let end_sig = symbol_map.get("end_signature")
+            .copied()
             .ok_or_else(|| anyhow::anyhow!("Cannot find 'end_signature' symbol"))?;
         
         println!("Found signature region: 0x{:x} - 0x{:x}", begin_sig, end_sig);
@@ -85,13 +115,17 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
         (0, 0) // Not used if signature output isn't requested
     };
     
+    // Calculate the signature length (matching how Spike works)
+    let sig_len = end_sig_addr - begin_sig_addr;
+    println!("Signature region length: {} bytes", sig_len);
+    
     println!("Executing ELF file...");
     
     // Keep a copy of the original ELF file for fallback signature generation
     let elf_copy = elf_file.clone();
     
     match k_trace(elf_file, &[], &[], &[], 1) {
-        Ok((view, trace)) => {
+        Ok((view, _trace)) => {
             println!("Execution completed successfully");
             
             // Write signature if requested
@@ -157,118 +191,6 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
                         }
                     }
                 }
-            }
-            
-            Ok(())
-        }
-        Err(VMError::VMExited(code)) => {
-            println!("Program exited with code: {}", code);
-            
-            // If program exited but signature was requested, we'll try to write a signature anyway
-            // We do the best we can with existing RAM image
-            if let Some(sig_path) = &args.signature_path {
-                println!("Attempting to write signature despite early exit...");
-                
-                // Create a minimal view with just the RAM image from the ELF
-                // This is better than nothing for test compatibility
-                let mut file = File::create(sig_path)?;
-                
-                // Extract the signature region from the raw RAM image
-                let ram_entries: Vec<_> = elf_copy.ram_image.iter()
-                    .filter(|(&addr, _)| begin_sig_addr <= addr && addr < end_sig_addr)
-                    .collect();
-                
-                if ram_entries.is_empty() {
-                    println!("Warning: No memory entries found in signature region");
-                    // Generate placeholder entries to avoid test failures
-                    for i in 0..8 {
-                        writeln!(file, "{:08x}", i + 1)?;
-                    }
-                } else {
-                    // Group bytes by word according to granularity
-                    let mut words_by_addr: BTreeMap<u32, u32> = BTreeMap::new();
-                    
-                    // Process ram_entries in address order
-                    for (&addr, &byte_value) in ram_entries {
-                        let word_addr = (addr / args.signature_granularity as u32) 
-                                        * args.signature_granularity as u32;
-                        let shift = 8 * (addr - word_addr) as usize;
-                        
-                        words_by_addr
-                            .entry(word_addr)
-                            .and_modify(|word| *word |= (byte_value as u32) << shift)
-                            .or_insert((byte_value as u32) << shift);
-                    }
-                    
-                    // Write each word to the signature file in address order
-                    for (_, word) in words_by_addr {
-                        writeln!(file, "{:08x}", word)?;
-                    }
-                }
-                
-                println!("Signature written (may be incomplete)");
-            }
-            
-            Ok(())
-        }
-        Err(VMError::VMOutOfInstructions) => {
-            println!("Program reached the end of instructions - treating as normal exit");
-            
-            // For architecture tests, reaching the end of instruction memory is normal
-            // We'll extract the signature from the RAM image
-            if let Some(sig_path) = &args.signature_path {
-                println!("Writing signature...");
-                
-                // Extract from the raw RAM image since we don't have a proper view
-                let mut file = File::create(sig_path)?;
-                
-                // Debug output for signature region
-                println!("DEBUG: Signature region addresses: 0x{:x} - 0x{:x}", begin_sig_addr, end_sig_addr);
-                
-                // Extract the signature region from the raw RAM image
-                let ram_entries: Vec<_> = elf_copy.ram_image.iter()
-                    .filter(|(&addr, _)| begin_sig_addr <= addr && addr < end_sig_addr)
-                    .collect();
-                
-                // Debug ram entries
-                println!("DEBUG: Found {} RAM entries in signature region", ram_entries.len());
-                if !ram_entries.is_empty() {
-                    println!("DEBUG: First few RAM entries:");
-                    for (i, (&addr, &value)) in ram_entries.iter().take(5).enumerate() {
-                        println!("  Entry {}: addr=0x{:x}, value=0x{:x}", i, addr, value);
-                    }
-                }
-                
-                if ram_entries.is_empty() {
-                    println!("Warning: No memory entries found in signature region");
-                    // Generate placeholder entries to avoid test failures
-                    for i in 0..8 {
-                        writeln!(file, "{:08x}", i + 1)?;
-                    }
-                } else {
-                    println!("Ram entries are not empty!");
-                    // Group bytes by word according to granularity
-                    let mut words_by_addr: BTreeMap<u32, u32> = BTreeMap::new();
-                    
-                    // Process ram_entries in address order
-                    for (&addr, &byte_value) in ram_entries {
-                        let word_addr = (addr / args.signature_granularity as u32) 
-                                        * args.signature_granularity as u32;
-                        let shift = 8 * (addr - word_addr) as usize;
-                        
-                        words_by_addr
-                            .entry(word_addr)
-                            .and_modify(|word| *word |= (byte_value as u32) << shift)
-                            .or_insert((byte_value as u32) << shift);
-                    }
-                    
-                    // Write each word to the signature file in address order
-                    for (_, word) in words_by_addr {
-                        writeln!(file, "{:08x}", word)?;
-                    }
-                }
-                
-                println!("Signature written successfully");
             }
             
             Ok(())

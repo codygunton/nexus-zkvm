@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 cargo_metadata = "0.18.1"
 clap.workspace = true
+elf = "0.7"
 
 nexus-core = { path = "../core" }
 nexus-progress-bar = { path = "./progress-bar" }
