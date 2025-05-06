@@ -90,23 +90,27 @@ pub fn handle_command(args: ExecuteArgs) -> anyhow::Result<()> {
     println!("Loading ELF file: {}", args.elf_path.display());
     
     let elf_file = ElfFile::from_path(&args.elf_path)?;
+    for (i, instruction) in elf_file.instructions.iter().enumerate() {
+        println!("instruction {} {:04x}", i, instruction);
+    }
+
     
     // Check for signature symbols if signature output is requested
     let (begin_sig_addr, end_sig_addr) = if args.signature_path.is_some() {
         println!("Looking for signature symbols");
         
         // Get symbol addresses directly from the ELF file
-        let symbols = ["begin_signature", "end_signature"];
+        let symbols = ["rvtest_sig_begin", "rvtest_sig_end"];
         let symbol_map = elf_file.get_symbol_addresses_from_path(&args.elf_path, &symbols)?;
         
-        // Extract begin_signature and end_signature addresses
-        let begin_sig = symbol_map.get("begin_signature")
+        // Extract rvtest_sig_begin and rvtest_sig_end addresses
+        let begin_sig = symbol_map.get("rvtest_sig_begin")
             .copied()
-            .ok_or_else(|| anyhow::anyhow!("Cannot find 'begin_signature' symbol"))?;
+            .ok_or_else(|| anyhow::anyhow!("Cannot find 'rvtest_sig_begin' symbol"))?;
         
-        let end_sig = symbol_map.get("end_signature")
+        let end_sig = symbol_map.get("rvtest_sig_end")
             .copied()
-            .ok_or_else(|| anyhow::anyhow!("Cannot find 'end_signature' symbol"))?;
+            .ok_or_else(|| anyhow::anyhow!("Cannot find 'rvtest_sig_end' symbol"))?;
         
         println!("Found signature region: 0x{:x} - 0x{:x}", begin_sig, end_sig);
         (begin_sig, end_sig)
