@@ -665,6 +665,7 @@ impl Emulator for HarvardEmulator {
 
         let block = decode_until_end_of_a_block(self.instruction_memory.segment(pc, None));
         if block.is_empty() {
+            println!("Block is empty");
             return Err(VMError::VMOutOfInstructions);
         }
 
